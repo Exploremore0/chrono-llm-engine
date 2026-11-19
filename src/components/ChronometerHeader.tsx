@@ -1,14 +1,14 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React from 'react';
 import {
   Clock,
   Compass,
   Download,
   RotateCcw,
-  ChevronDown,
   Play,
   Layers,
 } from 'lucide-react';
-import { AttentionHeadId, PresetPrompt, StageId } from '../types/chrono';
+import { AttentionHeadId, StageId } from '../types/chrono';
+import { MAX_EMBEDDING_DIMS, MIN_EMBEDDING_DIMS } from '../engine/chronoEngine';
 
 interface ChronometerHeaderProps {
   prompt: string;
@@ -17,24 +17,25 @@ interface ChronometerHeaderProps {
   isIgniting: boolean;
   activeStage: StageId;
   onStageSelect: (stage: StageId) => void;
-  presets: PresetPrompt[];
-  onSelectPreset: (preset: PresetPrompt) => void;
   onOpenTour: () => void;
   onExportJson: () => void;
   onResetAll: () => void;
-  // Telemetry values
+  // Telemetry & direct customizable controls
   tokenCount: number;
   activeVocabSize: number;
   vocabCapacity: number;
+  embeddingDimensions: number;
+  onEmbeddingDimensionsChange: (dims: number) => void;
   activeHead: AttentionHeadId;
   temperature: number;
+  onTemperatureChange: (t: number) => void;
   timelineConfidence: number;
 }
 
 const STAGE_TABS: { id: StageId; label: string; short: string }[] = [
   { id: 'all', label: 'All 5 Stages', short: 'All Stages' },
   { id: 'stage-1', label: '1. Tokenizer Forge', short: '1. Tokenizer' },
-  { id: 'stage-2', label: '2. 8D/3D Embeddings', short: '2. Embeddings' },
+  { id: 'stage-2', label: '2. Embeddings Lab', short: '2. Embeddings' },
   { id: 'stage-3', label: '3. Causal Attention', short: '3. Attention' },
   { id: 'stage-4', label: '4. Probability Horizon', short: '4. Horizon' },
   { id: 'stage-5', label: '5. Timeline Weaver', short: '5. Weaver' },
@@ -47,31 +48,19 @@ export const ChronometerHeader: React.FC<ChronometerHeaderProps> = ({
   isIgniting,
   activeStage,
   onStageSelect,
-  presets,
-  onSelectPreset,
   onOpenTour,
   onExportJson,
   onResetAll,
   tokenCount,
   activeVocabSize,
   vocabCapacity,
+  embeddingDimensions,
+  onEmbeddingDimensionsChange,
   activeHead,
   temperature,
+  onTemperatureChange,
   timelineConfidence,
 }) => {
-  const [presetOpen, setPresetOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setPresetOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleOutside);
-    return () => document.removeEventListener('mousedown', handleOutside);
-  }, []);
-
   const headDisplay =
     activeHead === 'syntax'
       ? '3 Active · Syntax'
@@ -107,42 +96,6 @@ export const ChronometerHeader: React.FC<ChronometerHeaderProps> = ({
             Guided Time-Jump Tour
           </button>
 
-          <div className="relative" ref={dropdownRef}>
-            <button
-              type="button"
-              onClick={() => setPresetOpen((prev) => !prev)}
-              aria-expanded={presetOpen}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-white text-slate-800 border border-slate-300 hover:border-cyan-500 transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-cyan-600"
-            >
-              Timeline Presets
-              <ChevronDown
-                className={`w-3.5 h-3.5 text-slate-500 transition-transform ${presetOpen ? 'rotate-180' : ''}`}
-                aria-hidden="true"
-              />
-            </button>
-
-            {presetOpen && (
-              <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-xl bg-white border border-slate-200 shadow-xl p-1.5 z-50">
-                {presets.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => {
-                      onSelectPreset(p);
-                      setPresetOpen(false);
-                    }}
-                    className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-slate-100 transition-colors flex flex-col gap-0.5 cursor-pointer"
-                  >
-                    <span className="text-xs font-medium text-slate-900 leading-snug">
-                      “{p.prompt}”
-                    </span>
-                    <span className="text-[11px] font-mono text-amber-700">{p.eraTag}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
           <button
             type="button"
             onClick={onExportJson}
@@ -163,35 +116,78 @@ export const ChronometerHeader: React.FC<ChronometerHeaderProps> = ({
         </div>
       </div>
 
-      {/* Live Telemetry Gauges Strip */}
+      {/* Live Telemetry Gauges Strip (with direct Embedding Dimensions & Temperature customization) */}
       <div className="border-t border-slate-200 bg-slate-50/90">
-        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-2.5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-2.5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 items-center">
           <div className="flex flex-col">
             <span className="text-[11px] text-slate-500">Temporal Tokens</span>
             <span className="font-mono text-sm font-semibold text-amber-700">
               {tokenCount} <span className="text-xs font-normal text-slate-500">tokens</span>
             </span>
           </div>
+
           <div className="flex flex-col">
             <span className="text-[11px] text-slate-500">Vocab Capacity</span>
             <span className="font-mono text-sm font-semibold text-cyan-700">
-              {vocabCapacity} <span className="text-xs font-normal text-slate-500">BPE ({activeVocabSize} active)</span>
+              {vocabCapacity} <span className="text-xs font-normal text-slate-500">({activeVocabSize} active)</span>
             </span>
           </div>
+
           <div className="flex flex-col">
-            <span className="text-[11px] text-slate-500">Embedding Dimensions</span>
-            <span className="font-mono text-sm font-semibold text-slate-900">8D → 3D</span>
+            <label htmlFor="hud-dims-input" className="text-[11px] text-slate-500">
+              Embedding Dimensions
+            </label>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <input
+                id="hud-dims-input"
+                type="number"
+                min={MIN_EMBEDDING_DIMS}
+                max={MAX_EMBEDDING_DIMS}
+                step={1}
+                value={embeddingDimensions}
+                onChange={(e) => {
+                  const val = Math.round(Number(e.target.value));
+                  if (!Number.isNaN(val)) {
+                    onEmbeddingDimensionsChange(
+                      Math.max(MIN_EMBEDDING_DIMS, Math.min(MAX_EMBEDDING_DIMS, val))
+                    );
+                  }
+                }}
+                className="w-12 px-1.5 py-0.5 rounded border border-slate-300 bg-white font-mono text-xs font-semibold text-slate-900 focus:outline-none focus:border-cyan-600"
+              />
+              <span className="font-mono text-xs font-semibold text-slate-700">D → 3D</span>
+            </div>
           </div>
+
           <div className="flex flex-col">
             <span className="text-[11px] text-slate-500">Attention Heads</span>
             <span className="font-mono text-sm font-semibold text-cyan-700 truncate">{headDisplay}</span>
           </div>
+
           <div className="flex flex-col">
-            <span className="text-[11px] text-slate-500">Temperature</span>
-            <span className="font-mono text-sm font-semibold text-amber-700">
-              {temperature.toFixed(2)} <span className="text-xs font-normal text-slate-500">/ 2.00</span>
-            </span>
+            <label htmlFor="hud-temp-input" className="text-[11px] text-slate-500">
+              Temperature (0.05–3.0)
+            </label>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <input
+                id="hud-temp-input"
+                type="number"
+                min={0.05}
+                max={3.0}
+                step={0.05}
+                value={temperature}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  if (!Number.isNaN(val)) {
+                    onTemperatureChange(Math.max(0.05, Math.min(3.0, val)));
+                  }
+                }}
+                className="w-16 px-1.5 py-0.5 rounded border border-slate-300 bg-white font-mono text-xs font-semibold text-amber-700 focus:outline-none focus:border-amber-500"
+              />
+              <span className="font-mono text-xs text-slate-500">/ 3.00</span>
+            </div>
           </div>
+
           <div className="flex flex-col">
             <span className="text-[11px] text-slate-500">Timeline Confidence</span>
             <span className="font-mono text-sm font-semibold text-emerald-700">

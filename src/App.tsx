@@ -1,13 +1,11 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   AttentionHeadId,
-  PresetPrompt,
   StageId,
   TokenizationMode,
   WeaveStepRecord,
 } from './types/chrono';
 import {
-  PRESET_PROMPTS,
   runPipeline,
   sampleFromCandidates,
 } from './engine/chronoEngine';
@@ -29,6 +27,7 @@ export default function App() {
   // Pipeline parameters
   const [tokenMode, setTokenMode] = useState<TokenizationMode>('bpe');
   const [vocabCapacity, setVocabCapacity] = useState<number>(20);
+  const [embeddingDimensions, setEmbeddingDimensions] = useState<number>(8);
   const [customCorpus, setCustomCorpus] = useState<string[]>([]);
   const [activeHead, setActiveHead] = useState<AttentionHeadId>('entity');
   const [temperature, setTemperature] = useState<number>(0.7);
@@ -55,12 +54,13 @@ export default function App() {
         prompt,
         tokenMode,
         vocabCapacity,
+        embeddingDimensions,
         temperature,
         topK,
         topP,
         customCorpus,
       }),
-    [prompt, tokenMode, vocabCapacity, temperature, topK, topP, customCorpus]
+    [prompt, tokenMode, vocabCapacity, embeddingDimensions, temperature, topK, topP, customCorpus]
   );
 
   // Keep selectedTokenIndex within bounds if prompt shrinks
@@ -87,22 +87,6 @@ export default function App() {
     setWeaveHistory([]);
   };
 
-  const handleSelectPreset = (preset: PresetPrompt) => {
-    setIsAutoWeaving(false);
-    setAutoWeaveRemaining(0);
-    setBasePrompt(preset.prompt);
-    setPrompt(preset.prompt);
-    setWeaveHistory([]);
-    setSelectedTokenIndex(null);
-    if (preset.id === 'traveler-portal') {
-      setActiveHead('entity');
-    } else if (preset.id === 'year-3026' || preset.id === 'golden-chrono') {
-      setActiveHead('temporal');
-    } else {
-      setActiveHead('syntax');
-    }
-  };
-
   const handleIgnitePipeline = () => {
     igniteTimersRef.current.forEach((id) => window.clearTimeout(id));
     igniteTimersRef.current = [];
@@ -122,6 +106,7 @@ export default function App() {
         prompt,
         tokenMode,
         vocabCapacity,
+        embeddingDimensions,
         temperature,
         topK,
         topP,
@@ -138,16 +123,28 @@ export default function App() {
         forcedToken,
       });
 
+      if (!stepRecord) return;
+
       setPrompt(stepRecord.promptAfter);
       setWeaveHistory((prev) => [...prev, stepRecord]);
     },
-    [prompt, tokenMode, vocabCapacity, temperature, topK, topP, customCorpus, weaveHistory.length]
+    [
+      prompt,
+      tokenMode,
+      vocabCapacity,
+      embeddingDimensions,
+      temperature,
+      topK,
+      topP,
+      customCorpus,
+      weaveHistory.length,
+    ]
   );
 
   // Auto-weave 10 tokens loop
   useEffect(() => {
     if (!isAutoWeaving) return;
-    if (autoWeaveRemaining <= 0) {
+    if (autoWeaveRemaining <= 0 || telemetry.candidates.length === 0) {
       setIsAutoWeaving(false);
       return;
     }
@@ -158,9 +155,10 @@ export default function App() {
     }, 420);
 
     return () => window.clearTimeout(timer);
-  }, [isAutoWeaving, autoWeaveRemaining, executeWeaveStep]);
+  }, [isAutoWeaving, autoWeaveRemaining, telemetry.candidates.length, executeWeaveStep]);
 
   const handleAutoWeave10 = () => {
+    if (telemetry.candidates.length === 0) return;
     setAutoWeaveRemaining(10);
     setIsAutoWeaving(true);
   };
@@ -189,6 +187,7 @@ export default function App() {
     setWeaveHistory([]);
     setTokenMode('bpe');
     setVocabCapacity(20);
+    setEmbeddingDimensions(8);
     setCustomCorpus([]);
     setActiveHead('entity');
     setTemperature(0.7);
@@ -205,6 +204,7 @@ export default function App() {
       parameters: {
         tokenMode,
         vocabCapacity,
+        embeddingDimensions,
         activeHead,
         temperature,
         topK,
@@ -278,16 +278,17 @@ export default function App() {
           isIgniting={ignitingStage !== null}
           activeStage={activeStage}
           onStageSelect={setActiveStage}
-          presets={PRESET_PROMPTS}
-          onSelectPreset={handleSelectPreset}
           onOpenTour={() => setTourOpen(true)}
           onExportJson={handleExportJson}
           onResetAll={handleResetAll}
           tokenCount={telemetry.tokens.length}
           activeVocabSize={telemetry.activeVocabSize}
           vocabCapacity={vocabCapacity}
+          embeddingDimensions={embeddingDimensions}
+          onEmbeddingDimensionsChange={setEmbeddingDimensions}
           activeHead={activeHead}
           temperature={temperature}
+          onTemperatureChange={setTemperature}
           timelineConfidence={telemetry.timelineConfidence}
         />
 
@@ -314,7 +315,8 @@ export default function App() {
           {showStage('stage-2') && (
             <Stage2Embeddings
               tokens={telemetry.tokens}
-              anchors={telemetry.anchors}
+              embeddingDimensions={embeddingDimensions}
+              onEmbeddingDimensionsChange={setEmbeddingDimensions}
               selectedTokenIndex={selectedTokenIndex}
               onSelectTokenIndex={setSelectedTokenIndex}
               isHighlighted={ignitingStage === 2}

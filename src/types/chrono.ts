@@ -22,16 +22,9 @@ export interface ChronoToken {
   isUnknown: boolean;
   wordIndex: number;
   category: 'entity' | 'action' | 'spatial' | 'temporal' | 'function' | 'descriptor' | 'subword';
-  vector8d: number[];
+  vector: number[];
   coords3d: [number, number, number];
   duplicateGroupCount: number;
-}
-
-export interface SemanticAnchor {
-  label: string;
-  cluster: 'Animals' | 'Actions' | 'Locations' | 'Time Concepts';
-  vector8d: number[];
-  coords3d: [number, number, number];
 }
 
 export interface AttentionHeadResult {
@@ -72,22 +65,15 @@ export interface WeaveStepRecord {
   reason: string;
 }
 
-export interface PresetPrompt {
-  id: string;
-  label: string;
-  prompt: string;
-  eraTag: string;
-}
-
 export interface PipelineTelemetry {
   prompt: string;
+  embeddingDimensions: number;
   tokens: ChronoToken[];
   wordComparisonTokens: ChronoToken[];
   charComparisonTokens: ChronoToken[];
   tokensPerWord: number;
   vocabTable: VocabEntry[];
   activeVocabSize: number;
-  anchors: SemanticAnchor[];
   attentionHeads: Record<AttentionHeadId, AttentionHeadResult>;
   candidates: CandidateToken[];
   timelineConfidence: number;

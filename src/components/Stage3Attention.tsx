@@ -398,7 +398,7 @@ export const Stage3Attention: React.FC<Stage3AttentionProps> = ({
       </div>
 
       <ChamberFooterNote
-        explanation="Self-attention lets every token look backward at earlier tokens to gather context—for example, linking 'it' back to 'portal'. Because text is generated left-to-right, the lower-triangular causal mask strictly blocks future tokens so the model cannot cheat."
+        explanation="Self-attention lets every token look backward at earlier tokens in your input to gather context—for example, linking a pronoun back to its noun or connecting a verb to its subject. Because text is generated left-to-right, the lower-triangular causal mask strictly blocks future tokens."
         realWorldScale="Real models use 32 to 96 parallel attention heads per layer"
       />
     </section>

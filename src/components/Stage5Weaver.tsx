@@ -34,6 +34,7 @@ export const Stage5Weaver: React.FC<Stage5WeaverProps> = ({
 }) => {
   const latestStep = weaveHistory.length > 0 ? weaveHistory[weaveHistory.length - 1] : null;
   const quickBranches = candidates.slice(0, 5);
+  const canGenerate = candidates.length > 0;
 
   return (
     <section
@@ -59,8 +60,8 @@ export const Stage5Weaver: React.FC<Stage5WeaverProps> = ({
           <button
             type="button"
             onClick={onStepOne}
-            disabled={isAutoWeaving}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-amber-600 text-white hover:bg-amber-500 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            disabled={isAutoWeaving || !canGenerate}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-amber-600 text-white hover:bg-amber-500 disabled:opacity-45 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             <StepForward className="w-3.5 h-3.5" aria-hidden="true" />
             Step +1 Token
@@ -70,7 +71,8 @@ export const Stage5Weaver: React.FC<Stage5WeaverProps> = ({
             <button
               type="button"
               onClick={onAutoWeave10}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-cyan-600 text-white hover:bg-cyan-500 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              disabled={!canGenerate}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-cyan-600 text-white hover:bg-cyan-500 disabled:opacity-45 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <FastForward className="w-3.5 h-3.5" aria-hidden="true" />
               Auto-Weave 10 Tokens
@@ -110,7 +112,7 @@ export const Stage5Weaver: React.FC<Stage5WeaverProps> = ({
         <p className="text-lg sm:text-xl leading-relaxed font-sans text-slate-900 break-words">
           {weaveHistory.length === 0 && !currentPrompt.trim() ? (
             <span className="text-slate-400 text-base">
-              Your custom prompt will appear here as tokens are woven...
+              Enter your own words above to start weaving...
             </span>
           ) : (
             <span>{weaveHistory.length === 0 ? currentPrompt : basePrompt.trimEnd()}</span>
@@ -130,7 +132,7 @@ export const Stage5Weaver: React.FC<Stage5WeaverProps> = ({
               </span>
             );
           })}
-          {!isAutoWeaving && weaveHistory.length === 0 && (
+          {!isAutoWeaving && weaveHistory.length === 0 && canGenerate && (
             <span className="inline-block ml-2 px-2 py-0.5 rounded-md border border-dashed border-cyan-500/60 text-cyan-700 text-sm font-mono">
               [next token]
             </span>
@@ -145,11 +147,15 @@ export const Stage5Weaver: React.FC<Stage5WeaverProps> = ({
               <span className="font-semibold text-amber-800 mr-1.5">Why "{latestStep.token}" won:</span>
               <span>{latestStep.reason}</span>
             </div>
-          ) : (
+          ) : canGenerate ? (
             <div className="text-slate-600">
               Click <span className="text-amber-700 font-semibold">Step +1 Token</span>,{' '}
               <span className="text-cyan-700 font-semibold">Auto-Weave 10 Tokens</span>, or click any
               candidate branch below or in Stage 4 to advance the timeline.
+            </div>
+          ) : (
+            <div className="text-slate-500">
+              Write a few words in the input box above (or add sentences in Stage 1’s corpus drawer) to enable autoregressive weaving.
             </div>
           )}
         </div>

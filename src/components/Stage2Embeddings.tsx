@@ -1,40 +1,38 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
-import { RotateCcw, ZoomIn, ZoomOut, Compass, CopyCheck } from 'lucide-react';
-import { ChronoToken, SemanticAnchor } from '../types/chrono';
-import { DIMENSION_LABELS, cosineSimilarity } from '../engine/chronoEngine';
+import { RotateCcw, ZoomIn, ZoomOut, Compass, CopyCheck, SlidersHorizontal } from 'lucide-react';
+import { ChronoToken } from '../types/chrono';
+import {
+  DIMENSION_LABELS,
+  MAX_EMBEDDING_DIMS,
+  MIN_EMBEDDING_DIMS,
+  cosineSimilarity,
+} from '../engine/chronoEngine';
 import { ChamberFooterNote } from './ChamberFooterNote';
 
 interface Stage2EmbeddingsProps {
   tokens: ChronoToken[];
-  anchors: SemanticAnchor[];
+  embeddingDimensions: number;
+  onEmbeddingDimensionsChange: (dims: number) => void;
   selectedTokenIndex: number | null;
   onSelectTokenIndex: (idx: number | null) => void;
   isHighlighted?: boolean;
 }
 
-const CLUSTER_COLORS: Record<SemanticAnchor['cluster'], string> = {
-  Animals: '#D97706',
-  Actions: '#0891B2',
-  Locations: '#059669',
-  'Time Concepts': '#0284C7',
-};
-
 interface ProjectedPoint {
   key: string;
   label: string;
-  isInputToken: boolean;
-  tokenIndex?: number;
-  cluster?: SemanticAnchor['cluster'];
+  tokenIndex: number;
   sx: number;
   sy: number;
   depth: number;
   coords3d: [number, number, number];
-  vector8d: number[];
+  vector: number[];
 }
 
 export const Stage2Embeddings: React.FC<Stage2EmbeddingsProps> = ({
   tokens,
-  anchors,
+  embeddingDimensions,
+  onEmbeddingDimensionsChange,
   selectedTokenIndex,
   onSelectTokenIndex,
   isHighlighted,
@@ -47,6 +45,11 @@ export const Stage2Embeddings: React.FC<Stage2EmbeddingsProps> = ({
   const dragStartRef = useRef<{ x: number; y: number; yaw: number; pitch: number } | null>(null);
   const [hoveredPoint, setHoveredPoint] = useState<ProjectedPoint | null>(null);
   const projectedPointsRef = useRef<ProjectedPoint[]>([]);
+
+  const activeDimLabels = useMemo(
+    () => DIMENSION_LABELS.slice(0, embeddingDimensions),
+    [embeddingDimensions]
+  );
 
   // Active reference token for Cosine Similarity inspection
   const referenceToken: ChronoToken | null = useMemo(() => {
@@ -68,7 +71,7 @@ export const Stage2Embeddings: React.FC<Stage2EmbeddingsProps> = ({
       .map(([norm]) => norm);
   }, [tokens]);
 
-  // Render interactive 3D Star-Map on Light Canvas
+  // Render interactive 3D Star-Map strictly for user input tokens
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -83,7 +86,6 @@ export const Stage2Embeddings: React.FC<Stage2EmbeddingsProps> = ({
     canvas.height = height * dpr;
     ctx.scale(dpr, dpr);
 
-    // Clear light lab canvas
     ctx.fillStyle = '#F8FAFC';
     ctx.fillRect(0, 0, width, height);
 
@@ -122,9 +124,9 @@ export const Stage2Embeddings: React.FC<Stage2EmbeddingsProps> = ({
 
     const origin = projectPoint([0, 0, 0]);
     const axes: { vec: [number, number, number]; label: string; color: string }[] = [
-      { vec: [1.35, 0, 0], label: 'Entity Axis', color: 'rgba(180, 83, 9, 0.72)' },
-      { vec: [0, 1.35, 0], label: 'Action Axis', color: 'rgba(8, 145, 178, 0.72)' },
-      { vec: [0, 0, 1.35], label: 'Temporal Axis', color: 'rgba(2, 132, 199, 0.72)' },
+      { vec: [1.35, 0, 0], label: 'Axis X', color: 'rgba(180, 83, 9, 0.72)' },
+      { vec: [0, 1.35, 0], label: 'Axis Y', color: 'rgba(8, 145, 178, 0.72)' },
+      { vec: [0, 0, 1.35], label: 'Axis Z', color: 'rgba(2, 132, 199, 0.72)' },
     ];
     for (const ax of axes) {
       const end = projectPoint(ax.vec);
@@ -141,22 +143,6 @@ export const Stage2Embeddings: React.FC<Stage2EmbeddingsProps> = ({
     ctx.restore();
 
     const points: ProjectedPoint[] = [];
-
-    for (const anchor of anchors) {
-      const p = projectPoint(anchor.coords3d);
-      points.push({
-        key: `anchor-${anchor.label}`,
-        label: anchor.label,
-        isInputToken: false,
-        cluster: anchor.cluster,
-        sx: p.sx,
-        sy: p.sy,
-        depth: p.depth,
-        coords3d: anchor.coords3d,
-        vector8d: anchor.vector8d,
-      });
-    }
-
     const seenInput = new Set<string>();
     for (const tok of tokens) {
       if (seenInput.has(tok.normalized)) continue;
@@ -165,35 +151,45 @@ export const Stage2Embeddings: React.FC<Stage2EmbeddingsProps> = ({
       points.push({
         key: `tok-${tok.index}`,
         label: tok.surface,
-        isInputToken: true,
         tokenIndex: tok.index,
         sx: p.sx,
         sy: p.sy,
         depth: p.depth,
         coords3d: tok.coords3d,
-        vector8d: tok.vector8d,
+        vector: tok.vector,
       });
     }
 
     points.sort((a, b) => a.depth - b.depth);
     projectedPointsRef.current = points;
 
-    if (referenceToken) {
+    if (points.length === 0) {
+      ctx.fillStyle = '#64748B';
+      ctx.font = '500 12px "Plus Jakarta Sans", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Enter words above to plot your input tokens in 3D space', cx, cy - 6);
+      return;
+    }
+
+    // Draw similarity vector line between referenceToken and hoveredPoint (or nearest other user token)
+    if (referenceToken && points.length > 1) {
       const refProj = projectPoint(referenceToken.coords3d);
       const targetPoint =
-        hoveredPoint ||
+        (hoveredPoint && hoveredPoint.label.toLowerCase() !== referenceToken.normalized
+          ? hoveredPoint
+          : null) ||
         points
-          .filter((pt) => !pt.isInputToken)
+          .filter((pt) => pt.label.toLowerCase() !== referenceToken.normalized)
           .sort(
             (a, b) =>
-              cosineSimilarity(referenceToken.vector8d, b.vector8d) -
-              cosineSimilarity(referenceToken.vector8d, a.vector8d)
+              cosineSimilarity(referenceToken.vector, b.vector) -
+              cosineSimilarity(referenceToken.vector, a.vector)
           )[0];
 
       if (targetPoint) {
         ctx.save();
         ctx.setLineDash([4, 4]);
-        ctx.strokeStyle = 'rgba(8, 145, 178, 0.7)';
+        ctx.strokeStyle = 'rgba(8, 145, 178, 0.72)';
         ctx.lineWidth = 1.6;
         ctx.beginPath();
         ctx.moveTo(refProj.sx, refProj.sy);
@@ -206,23 +202,15 @@ export const Stage2Embeddings: React.FC<Stage2EmbeddingsProps> = ({
     for (const pt of points) {
       const isHovered = hoveredPoint?.key === pt.key;
       const isRef =
-        pt.isInputToken &&
-        referenceToken &&
-        pt.label.toLowerCase() === referenceToken.normalized;
+        referenceToken && pt.label.toLowerCase() === referenceToken.normalized;
 
-      const radius = pt.isInputToken ? (isRef || isHovered ? 7 : 5.5) : isHovered ? 5.5 : 4;
-      const color = pt.isInputToken
-        ? '#D97706'
-        : pt.cluster
-          ? CLUSTER_COLORS[pt.cluster]
-          : '#64748B';
+      const radius = isRef || isHovered ? 7.5 : 5.5;
+      const color = isRef ? '#D97706' : '#0891B2';
 
-      if (pt.isInputToken || isHovered || isRef) {
+      if (isHovered || isRef) {
         ctx.beginPath();
         ctx.arc(pt.sx, pt.sy, radius + 5, 0, Math.PI * 2);
-        ctx.fillStyle = pt.isInputToken
-          ? 'rgba(217, 119, 6, 0.18)'
-          : 'rgba(8, 145, 178, 0.16)';
+        ctx.fillStyle = isRef ? 'rgba(217, 119, 6, 0.20)' : 'rgba(8, 145, 178, 0.18)';
         ctx.fill();
       }
 
@@ -234,13 +222,11 @@ export const Stage2Embeddings: React.FC<Stage2EmbeddingsProps> = ({
       ctx.strokeStyle = '#FFFFFF';
       ctx.stroke();
 
-      ctx.font = pt.isInputToken
-        ? '700 11px "JetBrains Mono", monospace'
-        : '500 10px "JetBrains Mono", monospace';
-      ctx.fillStyle = pt.isInputToken ? '#92400E' : '#334155';
+      ctx.font = '700 11px "JetBrains Mono", monospace';
+      ctx.fillStyle = isRef ? '#92400E' : '#0F172A';
       ctx.fillText(pt.label, pt.sx + radius + 5, pt.sy + 3.5);
     }
-  }, [tokens, anchors, yaw, pitch, zoom, hoveredPoint, referenceToken]);
+  }, [tokens, yaw, pitch, zoom, hoveredPoint, referenceToken, embeddingDimensions]);
 
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     setIsDragging(true);
@@ -280,15 +266,21 @@ export const Stage2Embeddings: React.FC<Stage2EmbeddingsProps> = ({
     dragStartRef.current = null;
   };
 
+  const handleCanvasClick = () => {
+    if (hoveredPoint) {
+      onSelectTokenIndex(hoveredPoint.tokenIndex);
+    }
+  };
+
   const inspectedTarget =
     hoveredPoint ||
     (referenceToken
       ? {
           key: `ref-${referenceToken.index}`,
           label: referenceToken.surface,
-          isInputToken: true,
+          tokenIndex: referenceToken.index,
           coords3d: referenceToken.coords3d,
-          vector8d: referenceToken.vector8d,
+          vector: referenceToken.vector,
           sx: 0,
           sy: 0,
           depth: 0,
@@ -297,7 +289,7 @@ export const Stage2Embeddings: React.FC<Stage2EmbeddingsProps> = ({
 
   const liveCosineSim =
     referenceToken && inspectedTarget
-      ? cosineSimilarity(referenceToken.vector8d, inspectedTarget.vector8d)
+      ? cosineSimilarity(referenceToken.vector, inspectedTarget.vector)
       : 1;
 
   return (
@@ -320,41 +312,111 @@ export const Stage2Embeddings: React.FC<Stage2EmbeddingsProps> = ({
           </h2>
         </div>
 
-        {duplicateNormals.length > 0 && (
-          <div className="inline-flex items-center gap-2 text-xs text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-1.5">
-            <CopyCheck className="w-4 h-4 text-amber-600 shrink-0" aria-hidden="true" />
-            <span>
-              Identical Token Signature Detected:{' '}
-              <span className="font-mono font-semibold">
-                {duplicateNormals.map((d) => `"${d}"`).join(', ')}
-              </span>{' '}
-              share identical 8D vectors
-            </span>
+        <div className="flex flex-wrap items-center gap-3">
+          {duplicateNormals.length > 0 && (
+            <div className="inline-flex items-center gap-2 text-xs text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-1.5">
+              <CopyCheck className="w-4 h-4 text-amber-600 shrink-0" aria-hidden="true" />
+              <span>
+                Shared Signature:{' '}
+                <span className="font-mono font-semibold">
+                  {duplicateNormals.map((d) => `"${d}"`).join(', ')}
+                </span>
+              </span>
+            </div>
+          )}
+
+          {/* Quick Dimension Presets */}
+          <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-slate-100 border border-slate-200">
+            {[4, 8, 12, 16].map((dim) => (
+              <button
+                key={dim}
+                type="button"
+                onClick={() => onEmbeddingDimensionsChange(dim)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition-colors cursor-pointer ${
+                  embeddingDimensions === dim
+                    ? 'bg-cyan-600 text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {dim}D
+              </button>
+            ))}
           </div>
-        )}
+        </div>
       </div>
 
-      {/* Main Split: 8D Vector Strips (Left) + Interactive 3D Star-Map (Right) */}
+      {/* Customizable Embedding Dimensions Bar */}
+      <div className="mt-4 bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex-1">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <label
+              htmlFor="embedding-dims-slider"
+              className="inline-flex items-center gap-2 text-xs font-semibold text-slate-800"
+            >
+              <SlidersHorizontal className="w-4 h-4 text-cyan-600" aria-hidden="true" />
+              Custom Embedding Dimensions
+            </label>
+            <span className="font-mono text-xs text-slate-500">
+              Range: {MIN_EMBEDDING_DIMS}D – {MAX_EMBEDDING_DIMS}D (projected to 3D)
+            </span>
+          </div>
+          <input
+            id="embedding-dims-slider"
+            type="range"
+            min={MIN_EMBEDDING_DIMS}
+            max={MAX_EMBEDDING_DIMS}
+            step={1}
+            value={embeddingDimensions}
+            onChange={(e) => onEmbeddingDimensionsChange(Number(e.target.value))}
+            className="w-full chrono-slider cyan"
+          />
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <label htmlFor="embedding-dims-number" className="text-xs font-medium text-slate-600">
+            Exact Dims:
+          </label>
+          <input
+            id="embedding-dims-number"
+            type="number"
+            min={MIN_EMBEDDING_DIMS}
+            max={MAX_EMBEDDING_DIMS}
+            step={1}
+            value={embeddingDimensions}
+            onChange={(e) => {
+              const val = Math.round(Number(e.target.value));
+              if (!Number.isNaN(val)) {
+                onEmbeddingDimensionsChange(
+                  Math.max(MIN_EMBEDDING_DIMS, Math.min(MAX_EMBEDDING_DIMS, val))
+                );
+              }
+            }}
+            className="w-16 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white font-mono text-sm font-bold text-cyan-700 text-center focus:outline-none focus:border-cyan-600"
+          />
+        </div>
+      </div>
+
+      {/* Main Split: N-D Vector Strips (Left) + Interactive 3D Star-Map (Right) */}
       <div className="mt-5 grid grid-cols-1 xl:grid-cols-12 gap-6 items-stretch">
-        {/* Left: 8D Token Vector Strips */}
+        {/* Left: N-D Token Vector Strips */}
         <div className="xl:col-span-7 flex flex-col">
           <div className="flex items-center justify-between text-xs text-slate-500 mb-3">
-            <span>8-Dimensional Semantic Vectors (Positive: Cyan · Negative: Amber)</span>
+            <span>{embeddingDimensions}-Dimensional Semantic Vectors (Positive: Cyan · Negative: Amber)</span>
             <span className="font-mono text-slate-500">Range [-1.00, +1.00]</span>
           </div>
 
           <div className="flex-1 rounded-xl bg-slate-50 border border-slate-200 p-3 sm:p-4 overflow-x-auto chrono-scroll">
             {tokens.length === 0 ? (
               <div className="py-12 text-center text-sm text-slate-600">
-                Type a custom sentence above to inspect each token’s 8-dimensional embedding vector.
+                Type a custom sentence above to inspect each input token’s {embeddingDimensions}-dimensional vector.
               </div>
             ) : (
-              <table className="w-full text-left border-collapse min-w-[600px]">
+              <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-slate-200 text-[11px] font-mono text-slate-500">
-                    <th className="py-2 pr-3 font-medium">Token</th>
-                    {DIMENSION_LABELS.map((dim) => (
-                      <th key={dim} className="py-2 px-1.5 font-medium text-center">
+                    <th className="py-2 pr-3 font-medium sticky left-0 bg-slate-50">Token</th>
+                    {activeDimLabels.map((dim) => (
+                      <th key={dim} className="py-2 px-2 font-medium text-center min-w-[62px]">
                         {dim}
                       </th>
                     ))}
@@ -379,7 +441,7 @@ export const Stage2Embeddings: React.FC<Stage2EmbeddingsProps> = ({
                               : 'hover:bg-white'
                         }`}
                       >
-                        <td className="py-2.5 pr-3 whitespace-nowrap">
+                        <td className="py-2.5 pr-3 whitespace-nowrap sticky left-0 bg-inherit">
                           <div className="flex items-center gap-2">
                             <span
                               className={`font-mono text-xs font-semibold ${
@@ -398,7 +460,7 @@ export const Stage2Embeddings: React.FC<Stage2EmbeddingsProps> = ({
                             )}
                           </div>
                         </td>
-                        {tok.vector8d.map((val, dIdx) => {
+                        {tok.vector.map((val, dIdx) => {
                           const pct = Math.min(100, Math.abs(val) * 100);
                           const isPos = val >= 0;
                           return (
@@ -443,12 +505,12 @@ export const Stage2Embeddings: React.FC<Stage2EmbeddingsProps> = ({
           </div>
         </div>
 
-        {/* Right: Interactive 3D Semantic Cluster Projection */}
+        {/* Right: Interactive 3D Semantic Projection (User Input Tokens Only) */}
         <div className="xl:col-span-5 flex flex-col">
           <div className="flex items-center justify-between text-xs text-slate-500 mb-3">
             <span className="inline-flex items-center gap-1.5">
               <Compass className="w-3.5 h-3.5 text-cyan-600" aria-hidden="true" />
-              Interactive 3D Semantic Star-Map (drag to rotate)
+              3D Input Token Projection ({embeddingDimensions}D → 3D, drag to rotate)
             </span>
             <div className="flex items-center gap-1">
               <button
@@ -488,6 +550,7 @@ export const Stage2Embeddings: React.FC<Stage2EmbeddingsProps> = ({
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
+              onClick={handleCanvasClick}
               onMouseLeave={() => {
                 handleMouseUp();
                 setHoveredPoint(null);
@@ -522,23 +585,18 @@ export const Stage2Embeddings: React.FC<Stage2EmbeddingsProps> = ({
           <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600">
             <span className="inline-flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-amber-600 inline-block" />
-              Input Tokens
+              Selected Token
             </span>
-            {(Object.keys(CLUSTER_COLORS) as SemanticAnchor['cluster'][]).map((c) => (
-              <span key={c} className="inline-flex items-center gap-1.5">
-                <span
-                  className="w-2 h-2 rounded-full inline-block"
-                  style={{ backgroundColor: CLUSTER_COLORS[c] }}
-                />
-                {c}
-              </span>
-            ))}
+            <span className="inline-flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-600 inline-block" />
+              Other Input Tokens (hover or click to compare)
+            </span>
           </div>
         </div>
       </div>
 
       <ChamberFooterNote
-        explanation="Each token ID looks up a row of numbers called an embedding vector. Words with similar roles—like 'stepped' and 'jumped', or 'portal' and 'floor'—cluster into nearby neighborhoods in multi-dimensional space, while identical words always map to the exact same coordinates."
+        explanation="Each token ID maps to a vector of numbers across your chosen embedding dimensions. Identical words always share the exact same vector coordinates, while rotating the 3D projection lets you inspect cosine similarity between the tokens you entered."
         realWorldScale="Real models use 4,096 to 12,288 embedding dimensions"
       />
     </section>
