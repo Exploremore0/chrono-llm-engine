@@ -1,0 +1,6 @@
+{
+  "name": "Chrono-LLM: Temporal Neural Engine",
+  "description": "Interactive AI Time-Machine Lab visualizing BPE tokenization, 8D/3D semantic embeddings, causal attention, temperature/nucleus sampling, and autoregressive token generation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
